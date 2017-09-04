@@ -5,55 +5,14 @@ from .protocol import ServerPacketTypes
 
 
 class Client(object):
+    connection_cls = Connection
+
     def __init__(self, *args, **kwargs):
-        self.connection = Connection(*args, **kwargs)
+        self.connection = self.connection_cls(*args, **kwargs)
         super(Client, self).__init__()
 
     def disconnect(self):
         self.connection.disconnect()
-
-    def receive_result(self, with_column_types=False):
-        data, columns_with_types = [], []
-
-        while True:
-            block = self.receive_block()
-            if not block:
-                break
-
-            if block is True:
-                continue
-
-            # Header block contains no rows. Pick columns from it.
-            if block.rows:
-                data.extend(block.data)
-            elif not columns_with_types:
-                columns_with_types = block.columns_with_types
-
-        if with_column_types:
-            return data, columns_with_types
-        else:
-            return data
-
-    def receive_block(self):
-        packet = self.connection.receive_packet()
-
-        if packet.type == ServerPacketTypes.EXCEPTION:
-            raise packet.exception
-
-        elif packet.type == ServerPacketTypes.END_OF_STREAM:
-            return False
-
-        elif packet.type == ServerPacketTypes.DATA:
-            return packet.block
-
-        elif packet.type == ServerPacketTypes.TOTALS:
-            return packet.block
-
-        elif packet.type == ServerPacketTypes.EXTREMES:
-            return packet.block
-
-        else:
-            return True
 
     def execute(self, query, params=None, with_column_types=False,
                 external_tables=None, query_id=None, settings=None):
@@ -102,6 +61,50 @@ class Client(object):
             packet = self.connection.receive_packet()
             if packet.exception:
                 raise packet.exception
+
+    # TODO: handle timeout
+    def receive_result(self, with_column_types=False):
+        data, columns_with_types = [], []
+
+        while True:
+            block = self.receive_block()
+            if not block:
+                break
+
+            if block is True:
+                continue
+
+            # Header block contains no rows. Pick columns from it.
+            if block.rows:
+                data.extend(block.data)
+            elif not columns_with_types:
+                columns_with_types = block.columns_with_types
+
+        if with_column_types:
+            return data, columns_with_types
+        else:
+            return data
+
+    def receive_block(self):
+        packet = self.connection.receive_packet()
+
+        if packet.type == ServerPacketTypes.EXCEPTION:
+            raise packet.exception
+
+        elif packet.type == ServerPacketTypes.END_OF_STREAM:
+            return False
+
+        elif packet.type == ServerPacketTypes.DATA:
+            return packet.block
+
+        elif packet.type == ServerPacketTypes.TOTALS:
+            return packet.block
+
+        elif packet.type == ServerPacketTypes.EXTREMES:
+            return packet.block
+
+        else:
+            return True
 
     def receive_sample_block(self):
         packet = self.connection.receive_packet()

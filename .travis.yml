@@ -1,3 +1,7 @@
+branches:
+  except:
+  - /^experimental-.*$/
+
 env:
   - VERSION=1.1.54276
 

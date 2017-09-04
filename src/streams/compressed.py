@@ -26,7 +26,7 @@ class CompressedBlockOutputStream(BlockOutputStream):
     def get_compressed_hash(self, data):
         return CityHash128(data)
 
-    def finalize(self):
+    def _finalize(self):
         compressed = self.get_compressed()
         compressed_size = len(compressed)
 
@@ -39,6 +39,9 @@ class CompressedBlockOutputStream(BlockOutputStream):
         while i < compressed_size:
             self.raw_fout.write(compressed[i:i + block_size])
             i += block_size
+
+    def finalize(self):
+        self._finalize()
 
         self.raw_fout.flush()
 

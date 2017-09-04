@@ -32,8 +32,6 @@ class BlockOutputStream(object):
             if rows:
                 write_column(col_name, col_type, block.data[i], self.fout)
 
-        self.finalize()
-
     def finalize(self):
         self.fout.flush()
 

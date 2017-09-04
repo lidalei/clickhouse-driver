@@ -94,13 +94,52 @@ class Connection(object):
         return '{}:{}'.format(self.host, self.port)
 
     def force_connect(self):
-
         if not self.connected:
             self.connect()
 
         elif not self.ping():
             logger.info('Connection was closed, reconnecting.')
             self.connect()
+
+    def _create_files_from_socket(self):
+        self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.settimeout(self.connect_timeout)
+        self.socket.connect((self.host, self.port))
+        self.connected = True
+        self.socket.settimeout(self.send_receive_timeout)
+
+        # performance tweak
+        self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+
+        self.fin = self.socket.makefile('rb')
+        self.fout = self.socket.makefile('wb')
+
+    def get_block_in_stream(self):
+        revision = self.server_info.revision
+
+        if self.compression:
+            from .streams.compressed import CompressedBlockInputStream
+
+            return CompressedBlockInputStream(self.fin, revision)
+        else:
+            from .streams.native import BlockInputStream
+
+            return BlockInputStream(self.fin, revision)
+
+    def get_block_out_stream(self):
+        revision = self.server_info.revision
+
+        if self.compression:
+            from .streams.compressed import CompressedBlockOutputStream
+
+            return CompressedBlockOutputStream(
+                self.compressor_cls, self.compress_block_size,
+                self.fout, revision
+            )
+        else:
+            from .streams.native import BlockOutputStream
+
+            return BlockOutputStream(self.fout, revision)
 
     def connect(self):
         try:
@@ -111,17 +150,7 @@ class Connection(object):
                 'Connecting. Database: %s. User: %s', self.database, self.user
             )
 
-            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            self.socket.settimeout(self.connect_timeout)
-            self.socket.connect((self.host, self.port))
-            self.connected = True
-            self.socket.settimeout(self.send_receive_timeout)
-
-            # performance tweak
-            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
-
-            self.fin = self.socket.makefile('rb')
-            self.fout = self.socket.makefile('wb')
+            self._create_files_from_socket()
 
             self.send_hello()
             self.receive_hello()
@@ -161,6 +190,11 @@ class Connection(object):
         self.reset_state()
 
     def send_hello(self):
+        self._send_hello()
+
+        self.fout.flush()
+
+    def _send_hello(self):
         write_varint(ClientPacketTypes.HELLO, self.fout)
         write_binary_str(self.client_name, self.fout)
         write_varint(defines.DBMS_VERSION_MAJOR, self.fout)
@@ -169,8 +203,6 @@ class Connection(object):
         write_binary_str(self.database, self.fout)
         write_binary_str(self.user, self.fout)
         write_binary_str(self.password, self.fout)
-
-        self.fout.flush()
 
     def receive_hello(self):
         packet_type = read_varint(self.fin)
@@ -233,8 +265,11 @@ class Connection(object):
 
         packet.type = packet_type = read_varint(self.fin)
 
+        print('got', packet_type)
+
         if packet_type == ServerPacketTypes.DATA:
             packet.block = self.receive_data()
+            print(packet.block.columns_with_types)
 
         elif packet_type == ServerPacketTypes.EXCEPTION:
             packet.exception = self.receive_exception()
@@ -264,33 +299,6 @@ class Connection(object):
 
         return packet
 
-    def get_block_in_stream(self):
-        revision = self.server_info.revision
-
-        if self.compression:
-            from .streams.compressed import CompressedBlockInputStream
-
-            return CompressedBlockInputStream(self.fin, revision)
-        else:
-            from .streams.native import BlockInputStream
-
-            return BlockInputStream(self.fin, revision)
-
-    def get_block_out_stream(self):
-        revision = self.server_info.revision
-
-        if self.compression:
-            from .streams.compressed import CompressedBlockOutputStream
-
-            return CompressedBlockOutputStream(
-                self.compressor_cls, self.compress_block_size,
-                self.fout, revision
-            )
-        else:
-            from .streams.native import BlockOutputStream
-
-            return BlockOutputStream(self.fout, revision)
-
     def receive_data(self):
         revision = self.server_info.revision
 
@@ -315,6 +323,12 @@ class Connection(object):
         return profile_info
 
     def send_data(self, block, table_name=''):
+        self._send_data(block, table_name=table_name)
+
+        self.block_out.finalize()
+        self.block_out.reset()
+
+    def _send_data(self, block, table_name=''):
         write_varint(ClientPacketTypes.DATA, self.fout)
 
         revision = self.server_info.revision
@@ -322,12 +336,16 @@ class Connection(object):
             write_binary_str(table_name, self.fout)
 
         self.block_out.write(block)
-        self.block_out.reset()
 
     def send_query(self, query, query_id=None, settings=None):
         if not self.connected:
             self.connect()
 
+        self._send_query(query, query_id=query_id, settings=settings)
+
+        self.fout.flush()
+
+    def _send_query(self, query, query_id=None, settings=None):
         write_varint(ClientPacketTypes.QUERY, self.fout)
 
         write_binary_str(query_id or '', self.fout)
@@ -347,8 +365,6 @@ class Connection(object):
         write_binary_str(query, self.fout)
 
         logger.info('Query: %s', query)
-
-        self.fout.flush()
 
     def send_cancel(self):
         write_varint(ClientPacketTypes.CANCEL, self.fout)
