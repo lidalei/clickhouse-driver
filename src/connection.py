@@ -359,31 +359,27 @@ class Connection(object):
         return packet
 
     def get_block_in_stream(self):
-        revision = self.server_info.revision
-
         if self.compression:
             from .streams.compressed import CompressedBlockInputStream
 
-            return CompressedBlockInputStream(self.fin, revision)
+            return CompressedBlockInputStream(self.fin, self.server_info)
         else:
             from .streams.native import BlockInputStream
 
-            return BlockInputStream(self.fin, revision)
+            return BlockInputStream(self.fin, self.server_info)
 
     def get_block_out_stream(self):
-        revision = self.server_info.revision
-
         if self.compression:
             from .streams.compressed import CompressedBlockOutputStream
 
             return CompressedBlockOutputStream(
                 self.compressor_cls, self.compress_block_size,
-                self.fout, revision
+                self.fout, self.server_info
             )
         else:
             from .streams.native import BlockOutputStream
 
-            return BlockOutputStream(self.fout, revision)
+            return BlockOutputStream(self.fout, self.server_info)
 
     def receive_data(self):
         revision = self.server_info.revision

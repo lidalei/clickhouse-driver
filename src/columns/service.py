@@ -59,13 +59,18 @@ def get_column_by_spec(spec, column_options=None):
             raise errors.UnknownTypeError('Unknown type {}'.format(e.args[0]))
 
 
-def read_column(column_spec, n_items, buf):
-    column = get_column_by_spec(column_spec)
+def read_column(server_info, column_spec, n_items, buf):
+    column_options = {'server_info': server_info}
+    column = get_column_by_spec(column_spec, column_options=column_options)
     return column.read_data(n_items, buf)
 
 
-def write_column(column_name, column_spec, items, buf, types_check=False):
-    column_options = {'types_check': types_check}
+def write_column(server_info, column_name, column_spec, items, buf,
+                 types_check=False):
+    column_options = {
+        'server_info': server_info,
+        'types_check': types_check
+    }
     column = get_column_by_spec(column_spec, column_options)
 
     try:
